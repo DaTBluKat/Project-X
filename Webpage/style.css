@@ -1,9 +1,8 @@
 .container { 
   display: block;
-  margin-left: auto; 
-  margin-right: auto; 
-  width: 50%; 
-  color: darkgrey; 
+  align-items: center;
+  border-color: darkslategray;
+  color: darkslategrey; 
   font-size: 24px; 
 }
 
