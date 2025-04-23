@@ -1,3 +1,3 @@
-sup
+# This is the page for a bunch of random projects thrown in a repository
 
-# Wassup this is the unofficial chat. ;) >:)
+Add if you feel like it
