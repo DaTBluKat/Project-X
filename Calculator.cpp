@@ -34,18 +34,18 @@ void arithmeticCalculator(){
              std::cout << result;
              break;
          case '/':
- @@ -39,17 +39,28 @@
          default:
              std::cout << "Enter a valid response"
      }
-     
-     
-     
-     
-     
      std::cout << "************************"
  }
  
+void algebraCalculator(){
+    int 
+}
+
+
+
  int main(){
  
      calculator();
