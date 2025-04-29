@@ -1,0 +1,7 @@
+passcode = skibidi rizz
+code for arithmeticCalculator = 1234
+    - addition code = 1+1
+    - subtraction code = 1-1
+    - multiplication code = 1*1
+    -divition code = 1/1
+code for algebraCalculator = 123xyz
