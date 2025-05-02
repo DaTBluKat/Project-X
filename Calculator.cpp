@@ -7,9 +7,9 @@ void passcodeVerifier();
 
 int main(){
 
-    passcodeVer`ifier();
+    passcodeVerifier();
      
-    std::string code;
+    int code;
  
     std::cout << "****** Terminal ******\n";
  
@@ -19,11 +19,11 @@ int main(){
     if(code == 1234){
         arithmeticCalculator();
     }
-    else if(code == 123xyz){
+    else if(code == 5678){
         algebraCalculator();
     }
     else{
-        std::cout << "Enter an approved code\n"
+        std::cout << "Enter an approved code\n";
     }
  
     std::cout << "*********************************";
@@ -35,34 +35,33 @@ double arithmeticCalculator(){
     double num1;
     double num2;
     double result;
-    std::string enteredCode;
+    char op;
 
-    do{
-        std::cout << "Enter code: ";
-        std::cin >> enteredCode;
-    }
-    while(enteredCode != "1+1" || enteredCode != "1-1" || enteredCode != "1*1" || enteredCode != "1/1")
+    std::cout << "Enter op: ";
 
     std::cout << "Enter #1: ";
     std::cin >> num1;
+
+    std::cout << "Enter op: ";
+    std::cin >> op;
     
     std::cout << "Enter #2: ";
     std::cin >> num2;
 
-    switch(enteredCode){
-        case '1+1':
+    switch(op){
+        case '+':
             result = num1 + num2;
             std::cout << result;
             break;
-        case '1-1':
+        case '-':
             result = num1 - num2;
             std::cout << result;
             break;
-        case '1*1':
+        case '*':
             result = num1 * num2;
             std::cout << result;
             break;
-        case '1/1':
+        case '/':
             result = num1 / num2;
             std::cout << result;
             break;
@@ -103,7 +102,7 @@ std::string algebraCalculator(){
             std::cout << "Enter variable 1: ";
             std::cin >> var1;
             std::cout << "Enter variable 2: ";
-            std::cin >> var2
+            std::cin >> var2;
         case 3:
             std::cout << "Enter variable 1: ";
             std::cin >> var1;
@@ -150,12 +149,12 @@ std::string algebraCalculator(){
 }
 
 void passcodeVerifier(){
-    std::string passcode = skibidi rizz;
+    std::string passcode = "skibidi rizz";
     std::string enteredPasscode; 
 
     do{
         std::cout << "Enter passcode: ";
         std::cin >> enteredPasscode;
     }
-    while(enteredPasscode != passcode)
+    while(enteredPasscode != passcode);
 } 
