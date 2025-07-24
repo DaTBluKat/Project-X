@@ -1,1 +1,1 @@
-# This is the page for a bunch of random projects thrown inrepositoryy
+# This is the page for a bunch of random projects thrown in a repository
