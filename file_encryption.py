@@ -54,10 +54,8 @@ if __name__ == "__main__":
     # Load the key from the file
     loaded_key = load_key(key_file)
 
-    # Example: Create a sample file to encrypt
-    sample_file = "test.txt"
-    with open(sample_file, "w") as f:
-        f.write("This is a secret message.")
+    # Input the file
+    file_name = input("Enter the file: ")
 
     # Encrypt the file
     encrypt_file(sample_file, loaded_key)
