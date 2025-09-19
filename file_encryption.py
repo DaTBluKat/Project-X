@@ -58,8 +58,14 @@ if __name__ == "__main__":
     file_name = input("Enter the file: ")
 
     # Encrypt the file
-    encrypt_file(sample_file, loaded_key)
+    encrypt_file(file_name, loaded_key)
 
     # Decrypt the file
-    encrypted_file = "test.txt.encrypted"
-    decrypt_file(encrypted_file, loaded_key)
+    encrypted_file = input("Enter the file to decrypt: ")
+    choice = input("Enter a key?(y/n): " 
+    if choice == "y"
+        new_key == input("Enter key: ")
+	decrypt_file(encrypted_file, new_key)
+    elif choice == "n"
+	decrypt_file(encrypted_file, loaded_key)
+    
