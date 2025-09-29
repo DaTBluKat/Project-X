@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Mini WorldBox</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      text-align: center;
+      background-color: #f0f0f0;
+    }
+    canvas {
+      border: 2px solid #333;
+      margin-top: 20px;
+    }
+    #controls {
+      margin-top: 15px;
+    }
+    button {
+      margin: 5px;
+      padding: 10px 15px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h1>🌍 Mini WorldBox</h1>
+  <canvas id="world" width="600" height="400"></canvas>
+  <div id="controls">
+    <button onclick="spawnFire()">🔥 Spawn Fire</button>
+    <button onclick="spawnCreature()">🧍 Spawn Creature</button>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('world');
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width;
+    const height = canvas.height;
+    const tileSize = 10;
+    const cols = width / tileSize;
+    const rows = height / tileSize;
+
+    let map = [];
+    let creatures = [];
+
+    function generateMap() {
+      for (let y = 0; y < rows; y++) {
+        map[y] = [];
+        for (let x = 0; x < cols; x++) {
+          const elevation = Math.random();
+          let type = 'water';
+          if (elevation > 0.3) type = 'grass';
+          if (elevation > 0.6) type = 'mountain';
+          map[y][x] = { type };
+        }
+      }
+    }
+
+    function drawMap() {
+      for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+          const tile = map[y][x];
+          if (tile.type === 'water') ctx.fillStyle = 'blue';
+          if (tile.type === 'grass') ctx.fillStyle = 'green';
+          if (tile.type === 'mountain') ctx.fillStyle = 'gray';
+          ctx.fillRect(x * tileSize, y * tileSize, tileSize, tileSize);
+        }
+      }
+    }
+
+    function drawCreatures() {
+      for (const c of creatures) {
+        ctx.fillStyle = 'red';
+        ctx.fillRect(c.x * tileSize, c.y * tileSize, tileSize, tileSize);
+      }
+    }
+
+    function spawnFire() {
+      const x = Math.floor(Math.random() * cols);
+      const y = Math.floor(Math.random() * rows);
+      ctx.fillStyle = 'orange';
+      ctx.fillRect(x * tileSize, y * tileSize, tileSize, tileSize);
+    }
+
+    function spawnCreature() {
+      const x = Math.floor(Math.random() * cols);
+      const y = Math.floor(Math.random() * rows);
+      creatures.push({ x, y });
+      drawMap();
+      drawCreatures();
+    }
+
+    generateMap();
+    drawMap();
+  </script>
+</body>
+</html>
