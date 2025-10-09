@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Apex Protocol — Demo</title>
+<style>
+  /* Base visual theme adapted from your doc */
+  :root{
+    --bg:#1a1a1a; --panel:#252526; --muted:#d4d4d4; --accent:#ff4500; --green:#00ff7f;
+  }
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--muted);font-family:Consolas,monospace;}
+  .stage{width:100%;height:100%;display:grid;place-items:center;padding:20px;box-sizing:border-box;}
+  .container{
+    width:1000px;max-width:98vw;background:var(--panel);border-radius:8px;padding:12px;box-shadow:0 6px 30px rgba(0,0,0,.6);
+  }
+  header{display:flex;align-items:center;gap:12px}
+  h1{margin:0;color:var(--accent);letter-spacing:2px;font-size:1.4rem}
+  .row{display:flex;gap:12px;margin-top:10px}
+  #gameWrap{position:relative;background:#0f0f0f;border-radius:6px;overflow:hidden}
+  canvas{display:block;background:linear-gradient(#0b0b0b,#111);}
+
+  /* Minimal HUD elements (hidden by default) */
+  .hud{
+    position:absolute;left:10px;bottom:10px;padding:8px;background:rgba(0,0,0,.45);border-radius:6px;font-size:13px;
+    display:flex;gap:10px;align-items:center;color:var(--muted);
+  }
+  .btn{
+    background:#222;padding:6px 10px;border-radius:6px;border:1px solid #333;color:var(--muted);cursor:pointer;
+  }
+  .panel{
+    margin-left:12px;padding:10px;border-radius:6px;background:linear-gradient(#1f1f1f,#2a2a2a);border:1px solid #333;
+  }
+
+  /* Overlay for manual actions (map, inspect) that blocks vision */
+  .overlay{
+    position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.85);
+    color:var(--muted);padding:20px;box-sizing:border-box;
+  }
+  .mapCard{background:#111;border:1px solid #333;padding:16px;border-radius:8px;max-width:90%;max-height:90%;overflow:auto}
+  .statline{font-size:13px;color:#ccc;margin-bottom:6px}
+  .info{font-size:12px;color:#aaa}
+  footer{margin-top:10px;color:#999;font-size:12px}
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="container">
+    <header>
+      <h1>APEX PROTOCOL — Demo</h1>
+      <div style="margin-left:auto;color:#bbb;font-size:12px">Prototype: simplified mechanics</div>
+    </header>
+
+    <div class="row">
+      <div id="gameWrap" style="width:100%;height:600px">
+        <canvas id="game" width="960" height="540"></canvas>
+
+        <!-- HUD: deliberately minimal — ammo is checked manually with "F" -->
+        <div class="hud" id="hud">
+          <div id="status">Stance: <strong id="stance">Standing</strong></div>
+          <div id="sway">Sway: <strong id="swayVal">0</strong></div>
+        </div>
+
+        <!-- Overlay (map / inspect) blocks vision & weapon use -->
+        <div class="overlay" id="overlay">
+          <div class="mapCard" id="mapCard">
+            <h3 style="color:var(--green);margin-top:0">Field Map / Inspection</h3>
+            <div class="statline">Press <strong>Esc</strong> to close. While open, you cannot aim or fire.</div>
+            <div id="mapContent" class="info">
+              <p>Top-down schematic: enemies marked red; allies blue. Doors show "checked" status.</p>
+              <pre id="mapText" style="white-space:pre-wrap;font-family:monospace;font-size:12px;color:#ddd"></pre>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:12px;align-items:center">
+      <div class="panel" style="flex:1">
+        <div style="font-weight:bold;color:var(--green)">Controls</div>
+        <div class="info" style="margin-top:6px">
+          WASD move • Mouse aim • Left click fire • Shift hold to steady (reduce sway) • C toggle stance (stand/crouch/prone) • F manual ammo-check • R reload (multi-step) • M open map/inspect • P toggle permadeath
+        </div>
+      </div>
+
+      <div class="panel" style="width:260px">
+        <div style="font-weight:bold">Weapon</div>
+        <div id="weaponInfo" class="info" style="margin-top:6px">
+          <div>Magazine capacity: <span id="magCap">8</span></div>
+          <div>Rounds in mag: <span id="magCount">8</span></div>
+          <div>Spare mags: <span id="spareMags">3</span></div>
+          <div>State: <span id="weaponState">Ready</span></div>
+          <div style="margin-top:8px">Actions: manual ammo-check (F) shows chamber peek; Reload (R) performs either tac or emergency based on key modifiers.</div>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      Prototype mechanics: ballistic drop, wind influence, sway/fatigue, manual HUD elements. This is a *toy* demo, not a full game.
+    </footer>
+  </div>
+</div>
+
+<script>
+/*
+  Apex Protocol — Demo
+  - Single-file browser prototype.
+  - Simplified physics and AI to demonstrate mechanics from your design doc.
+*/
+
+/* ---------- Config / State ---------- */
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+let W = canvas.width, H = canvas.height;
+let keys = {};
+let mouse = {x: W/2, y: H/2, down:false};
+let lastTime = performance.now();
+
+const player = {
+  x: W/2, y: H/2, rot: 0,
+  speed: 140, // px/s
+  stance: 0, // 0=standing,1=crouch,2=prone
+  stamina: 1.0, // 0..1
+  sway: 0, // current sway amplitude
+  health: 1.0, // 1.0 alive, 0 dead
+  inventory: {mag:8, spareMags:3, magCap:8},
+  reloading: false,
+  reloadStep: 0,
+  lastShot: 0,
+  steady: false
+};
+
+let wind = {x:0.02, y:0}; // wind vector influencing bullet drift
+let bullets = [];
+let enemies = [];
+let game = {permadeath:false, running:true, overlay:false, lastAmmoPeek:'', kills:0};
+
+/* ---------- Helper Functions ---------- */
+function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
+function dist(a,b,c,d){let dx=a-c, dy=b-d; return Math.sqrt(dx*dx+dy*dy);}
+
+/* ---------- Weapons / Ballistics ---------- */
+function fireBullet() {
+  if(player.reloading || game.overlay) return;
+  let now = performance.now();
+  if(now - player.lastShot < 150) return; // rate limit
+  if(player.inventory.mag <= 0){
+    // emergency "tactical" fallback: drop mag and attempt emergency reload (slow misfire chance)
+    player.inventory.mag = 0;
+    player.reloading = true;
+    player.reloadStep = 0;
+    updateWeaponUI();
+    return;
+  }
+  // simulate sway + stance + stamina -> add angle variance + velocity variation
+  let baseAngle = Math.atan2(mouse.y - player.y, mouse.x - player.x);
+  let swayFactor = player.sway * (player.steady ? 0.25 : 1);
+  let stanceMul = (player.stance===0?1: (player.stance===1?0.6:0.35));
+  let staminaMul = 1 - (1-player.stamina)*0.6;
+  let angleJitter = (Math.random()-0.5) * 0.02 * swayFactor * (1/stanceMul) / staminaMul;
+  let angle = baseAngle + angleJitter;
+
+  let speed = 900 * (0.92 + (Math.random()*0.16)); // px/s - muzzle variance
+  bullets.push({
+    x: player.x, y: player.y,
+    vx: Math.cos(angle)*speed + wind.x*200, vy: Math.sin(angle)*speed + wind.y*200,
+    life: 4000, created: now, owner: 'player',
+    drop: 0 // accumulated drop (gravity)
+  });
+  player.inventory.mag -= 1;
+  player.lastShot = now;
+  // recoil increases sway and reduces stamina slightly
+  player.sway = clamp(player.sway + 0.18, 0, 2.8);
+  player.stamina = clamp(player.stamina - 0.035, 0, 1);
+  updateWeaponUI();
+}
+
+/* Reload logic: multi-step
+   R pressed: if Shift held => tac reload (retain mag if any), else emergency (drop current mag)
+   Steps simulated by timer in update loop.
+*/
+function startReload(isTactical) {
+  if(player.reloading || player.inventory.spareMags<=0) return;
+  player.reloading = true;
+  player.reloadStep = isTactical ? 1 : 10; // we encode step sets: 1..3 tactical, 10..14 emergency
+}
+
+/* Manual ammo-check: peering into the well (shows chamber state briefly) */
+function ammoPeek(){
+  if(game.overlay) return;
+  let peek = `Mag: ${player.inventory.mag}/${player.inventory.magCap}\nSpare mags: ${player.inventory.spareMags}\nEstimated chamber: ${player.inventory.mag>0 ? 'round present' : 'empty'}`;
+  game.lastAmmoPeek = peek;
+  // show on overlay area for 1.6s (without blocking)
+  const prev = document.getElementById('weaponState');
+  prev.textContent = 'Peeking...';
+  setTimeout(()=>{ updateWeaponUI(); }, 1600);
+}
+
+/* ---------- Enemy AI ---------- */
+function spawnEnemy(x,y){
+  enemies.push({
+    x, y, vx:0, vy:0,
+    hp:1, state:'patrol', lastSeen:0, morale:1.0,
+    patrolCenter:{x,y}, speed:70
+  });
+}
+
+function updateEnemy(e, dt){
+  // simple behavior: patrol -> detect player by distance or sound
+  let toPlayer = dist(e.x,e.y, player.x, player.y);
+  let heard = (player.lastShot && performance.now() - player.lastShot < 2000 && toPlayer < 400);
+  let sees = toPlayer < 180;
+  if(sees || heard){
+    e.state='engage';
+    e.lastSeen = performance.now();
+  } else if(performance.now() - e.lastSeen < 3000) {
+    e.state = 'investigate';
+  } else {
+    e.state = 'patrol';
+  }
+
+  if(e.state==='patrol'){
+    // circle around patrol center
+    let ang = Math.atan2(player.y - e.y, player.x - e.x) + Math.PI/2;
+    e.vx += Math.cos(ang) * 0.02;
+    e.vy += Math.sin(ang) * 0.02;
+  } else if(e.state==='investigate'){
+    // move toward last known player spot with caution
+    let ang = Math.atan2(player.y - e.y, player.x - e.x);
+    e.vx += Math.cos(ang) * 0.08;
+    e.vy += Math.sin(ang) * 0.08;
+  } else {
+    // engage: move and try to 'shoot' if in range
+    let ang = Math.atan2(player.y - e.y, player.x - e.x);
+    e.vx += Math.cos(ang) * 0.16;
+    e.vy += Math.sin(ang) * 0.16;
+
+    // attempt to shoot occasionally
+    if(Math.random() < 0.006){
+      // enemy "fire" is just a ray check — could instagib if hits torso/head
+      if(toPlayer < 240){
+        // hit chance reduced by player's stance and cover; simplified chance:
+        let coverFactor = 1 - (player.stance===0?0: (player.stance===1?0.15:0.3));
+        if(Math.random() < 0.5 * coverFactor){
+          // apply lethal hit
+          player.health = 0;
+          game.running = false;
+        }
+      }
+    }
+  }
+
+  // apply velocity and damping
+  e.x += e.vx * dt;
+  e.y += e.vy * dt;
+  e.vx *= 0.9; e.vy *= 0.9;
+  // clamp inside play area
+  e.x = clamp(e.x, 40, W-40); e.y = clamp(e.y,40, H-40);
+}
+
+/* ---------- Update Loop ---------- */
+function update(dt){
+  if(!game.running) return;
+  // movement
+  let moveX = 0, moveY=0;
+  if(keys['w']) moveY -= 1;
+  if(keys['s']) moveY += 1;
+  if(keys['a']) moveX -= 1;
+  if(keys['d']) moveX += 1;
+  let len = Math.hypot(moveX,moveY);
+  if(len>0) { moveX/=len; moveY/=len; }
+  let stanceSpeedMul = (player.stance===0?1: (player.stance===1?0.7:0.4));
+  let spd = player.speed * stanceSpeedMul * (player.steady?0.7:1);
+  player.x += moveX * spd * dt;
+  player.y += moveY * spd * dt;
+  player.x = clamp(player.x, 20, W-20);
+  player.y = clamp(player.y, 20, H-20);
+
+  // stamina regen / drain
+  if(moveX===0 && moveY===0 && !player.lastShot) player.stamina = clamp(player.stamina + 0.08*dt, 0, 1);
+  else player.stamina = clamp(player.stamina - (0.02*(Math.hypot(moveX,moveY)))*dt, 0, 1);
+
+  // sway dynamics: increases with movement, decreases slowly if steady/standing
+  let targetSway = 0.4 + (1-player.stamina)*2.0 + (Math.hypot(moveX,moveY)*0.7);
+  if(player.steady) targetSway *= 0.4;
+  player.sway = player.sway + (targetSway - player.sway) * (0.6*dt);
+
+  // bullets
+  for(let i=bullets.length-1;i>=0;i--){
+    let b = bullets[i];
+    // gravity drop accumulates on vy
+    b.vy += 120 * dt; // gravity px/s^2 (artificial scale)
+    // wind affects vx slightly already baked in
+    b.x += b.vx * dt;
+    b.y += b.vy * dt;
+    b.life -= dt*1000;
+    // collision with enemies
+    for(let j=enemies.length-1;j>=0;j--){
+      let e = enemies[j];
+      if(dist(b.x,b.y,e.x,e.y) < 16){
+        // simple hit registration: center = lethal
+        enemies.splice(j,1);
+        bullets.splice(i,1);
+        game.kills++;
+        break;
+      }
+    }
+    // out of bounds/lifetime
+    if(b.life <= 0 || b.x<0 || b.x>W || b.y<0 || b.y>H){
+      bullets.splice(i,1);
+    }
+  }
+
+  // enemies update
+  for(let e of enemies) updateEnemy(e, dt);
+
+  // reload step processing
+  if(player.reloading){
+    // simulate step timing progression by incrementing reloadStepTimer
+    // We'll fake timings by stepping every 600ms
+    if(!player._reloadTimer) player._reloadTimer = 0;
+    player._reloadTimer += dt;
+    if(player._reloadTimer > 0.6){
+      player._reloadTimer = 0;
+      // Tactical steps
+      if(player.reloadStep >=1 && player.reloadStep <=3){
+        player.reloadStep++;
+        if(player.reloadStep>3){
+          // finish tactical: insert magazine (consumes one spare if mag not full)
+          let used = 1;
+          if(player.inventory.mag === player.inventory.magCap) used = 0;
+          if(player.inventory.spareMags >= used){
+            player.inventory.spareMags -= used;
+            player.inventory.mag = player.inventory.magCap;
+          }
+          player.reloading=false; player.reloadStep=0;
+        }
+      } else {
+        // emergency range (10..13)
+        player.reloadStep++;
+        if(player.reloadStep>13){
+          // emergency finishes: you lose current mag, use a spare
+          if(player.inventory.spareMags>0){
+            player.inventory.spareMags -= 1;
+            player.inventory.mag = player.inventory.magCap;
+          } else {
+            player.inventory.mag = 0;
+          }
+          player.reloading=false; player.reloadStep=0;
+        }
+      }
+      updateWeaponUI();
+    }
+  }
+
+  // Check player death
+  if(player.health <= 0 && game.running){
+    game.running = false;
+    // permadeath handling
+    if(game.permadeath){
+      // game over permanently
+      alert('You were killed. Permadeath: campaign over. (Demo)');
+    } else {
+      // allow respawn (quick demo respawn)
+      setTimeout(()=>{ resetPlayer(); }, 800);
+    }
+  }
+
+  // update small UI text
+  document.getElementById('stance').textContent = (player.stance===0?'Standing':(player.stance===1?'Crouched':'Prone'));
+  document.getElementById('swayVal').textContent = player.sway.toFixed(2);
+  updateWeaponUI();
+}
+
+/* ---------- Draw ---------- */
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  // simple grid floor
+  ctx.fillStyle = '#0b0b0b';
+  ctx.fillRect(0,0,W,H);
+  for(let gx=0;gx<W;gx+=40){
+    ctx.strokeStyle = '#0c0c0c'; ctx.beginPath(); ctx.moveTo(gx+0.5,0); ctx.lineTo(gx+0.5,H); ctx.stroke();
+  }
+  for(let gy=0;gy<H;gy+=40){
+    ctx.strokeStyle = '#0c0c0c'; ctx.beginPath(); ctx.moveTo(0,gy+0.5); ctx.lineTo(W,gy+0.5); ctx.stroke();
+  }
+
+  // draw bullets
+  ctx.fillStyle = '#ffd'; for(let b of bullets){ ctx.beginPath(); ctx.arc(b.x,b.y,2,0,Math.PI*2); ctx.fill(); }
+
+  // draw enemies
+  for(let e of enemies){
+    ctx.save();
+    ctx.translate(e.x,e.y);
+    ctx.fillStyle = '#c33';
+    ctx.beginPath(); ctx.arc(0,0,12,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+
+  // draw player
+  ctx.save();
+  ctx.translate(player.x, player.y);
+  // body
+  ctx.fillStyle = '#39a';
+  ctx.beginPath(); ctx.arc(0,0,10,0,Math.PI*2); ctx.fill();
+  // weapon direction
+  let ang = Math.atan2(mouse.y - player.y, mouse.x - player.x);
+  ctx.strokeStyle = '#ddd'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(Math.cos(ang)*26, Math.sin(ang)*26); ctx.stroke();
+
+  // draw a simple crosshair influenced by sway
+  let swayAngle = (Math.random()-0.5)*player.sway;
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(Math.cos(ang+swayAngle)*28 -1, Math.sin(ang+swayAngle)*28 -1, 2,2);
+
+  ctx.restore();
+
+  // debug text
+  ctx.fillStyle = '#9aa'; ctx.font = '12px monospace';
+  ctx.fillText(`Kills: ${game.kills}  Permadeath: ${game.permadeath ? 'ON' : 'OFF'}`, 10, 18);
+}
+
+/* ---------- Input ---------- */
+window.addEventListener('keydown', e=>{
+  keys[e.key.toLowerCase()] = true;
+  // stance toggle: C
+  if(e.key.toLowerCase() === 'c'){
+    player.stance = (player.stance + 1) % 3;
+  }
+  // steady: shift
+  if(e.key === 'Shift') player.steady = true;
+  // reload
+  if(e.key.toLowerCase()==='r'){
+    startReload(e.shiftKey); // shift+R = tac reload
+    updateWeaponUI();
+  }
+  // peek ammo
+  if(e.key.toLowerCase()==='f'){
+    ammoPeek();
+  }
+  // map
+  if(e.key.toLowerCase()==='m'){
+    toggleOverlay();
+  }
+  // permadeath toggle quick
+  if(e.key.toLowerCase()==='p'){
+    game.permadeath = !game.permadeath;
+  }
+});
+window.addEventListener('keyup', e=>{
+  keys[e.key.toLowerCase()] = false;
+  if(e.key === 'Shift') player.steady = false;
+});
+canvas.addEventListener('mousemove', e=>{
+  let r = canvas.getBoundingClientRect();
+  mouse.x = (e.clientX - r.left) * (canvas.width / r.width);
+  mouse.y = (e.clientY - r.top) * (canvas.height / r.height);
+});
+canvas.addEventListener('mousedown', e=>{
+  mouse.down = true;
+  fireBullet();
+});
+canvas.addEventListener('mouseup', e=>{
+  mouse.down = false;
+});
+
+/* Overlay toggle (map/inspection) */
+const overlay = document.getElementById('overlay');
+function toggleOverlay(){
+  game.overlay = !game.overlay;
+  overlay.style.display = game.overlay ? 'flex' : 'none';
+  if(game.overlay){
+    // block weapon use — fill map text with approximate positions
+    let txt = 'Map Snapshot\n\nEnemies:\n';
+    enemies.forEach((en,i)=> txt += `  E${i+1}: (${Math.round(en.x)}, ${Math.round(en.y)})\n`);
+    txt += `\nPlayer: (${Math.round(player.x)}, ${Math.round(player.y)})\n`;
+    txt += `\nDoors checked: none (demo)`;
+    document.getElementById('mapText').textContent = txt;
+  }
+}
+window.addEventListener('keydown', e=>{
+  if(e.key === 'Escape' && game.overlay) toggleOverlay();
+});
+
+/* UI update helper */
+function updateWeaponUI(){
+  document.getElementById('magCount').textContent = player.inventory.mag;
+  document.getElementById('spareMags').textContent = player.inventory.spareMags;
+  document.getElementById('magCap').textContent = player.inventory.magCap;
+  document.getElementById('weaponState').textContent = player.reloading ? 'Reloading...' : (game.lastAmmoPeek ? 'Ready' : 'Ready');
+}
+
+/* ---------- Utilities / Reset ---------- */
+function resetPlayer(){
+  player.x = W/2; player.y = H/2; player.health = 1.0; player.inventory.mag=player.inventory.magCap; player.inventory.spareMags=3;
+  player.reloading=false; player.reloadStep=0; player.sway=0; player.stamina=1; game.running=true;
+  enemies = []; bullets = []; spawnInitialEnemies();
+}
+
+/* ---------- Spawning ---------- */
+function spawnInitialEnemies(){
+  spawnEnemy(140,120); spawnEnemy(820,120); spawnEnemy(820,380); spawnEnemy(140,380);
+}
+
+/* ---------- Main Loop ---------- */
+function loop(now){
+  let dt = Math.min(0.05, (now - lastTime)/1000);
+  lastTime = now;
+  update(dt);
+  draw();
+  // auto-fire while mouse held
+  if(mouse.down) fireBullet();
+  requestAnimationFrame(loop);
+}
+
+/* ---------- Start ---------- */
+spawnInitialEnemies();
+updateWeaponUI();
+requestAnimationFrame(loop);
+
+</script>
+</body>
+</html>
