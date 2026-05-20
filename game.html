@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Retro Store & Mall Chaos - Boxing Update</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            font-family: 'Courier New', Courier, monospace;
+            user-select: none;
+        }
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+        }
+        /* PS2 Style HUD */
+        #hud {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #00ff00;
+            font-size: 22px;
+            font-weight: bold;
+            text-shadow: 2px 2px #000;
+            pointer-events: none;
+            z-index: 10;
+            line-height: 1.5;
+        }
+        /* Health Bars for Fight */
+        #health-container {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 300px;
+            background: rgba(0,0,0,0.7);
+            padding: 10px;
+            border: 2px solid #ff0000;
+            z-index: 10;
+            color: #fff;
+            font-weight: bold;
+        }
+        .bar-bg {
+            width: 100%;
+            background: #330000;
+            height: 15px;
+            margin-top: 5px;
+            border: 1px solid #ff0000;
+        }
+        #player-health-bar {
+            width: 100%;
+            height: 100%;
+            background: #00ff00;
+        }
+        #boss-health-bar {
+            width: 100%;
+            height: 100%;
+            background: #ffcc00;
+        }
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 10px;
+            height: 10px;
+            transform: translate(-50%, -50%);
+            border: 2px solid #00ff00;
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 10;
+        }
+        #instructions {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #fff;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px 20px;
+            border-radius: 5px;
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+        }
+        canvas {
+            image-rendering: pixelated;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+    <div id="hud">
+        CANS THROWN: <span id="score">0</span><br>
+        PAPER HELD: <span id="paper-count">0</span>
+    </div>
+
+    <div id="health-container">
+        PLAYER HP:
+        <div class="bar-bg"><div id="player-health-bar"></div></div>
+        <div style="margin-top: 10px;">MIKE TYSON HP:</div>
+        <div class="bar-bg"><div id="boss-health-bar"></div></div>
+    </div>
+
+    <div id="crosshair"></div>
+    <div id="instructions">WASD: Move | Click: Throw Can | F: Paper/Spit | B: Box/Punch | R: Reset Game</div>
+    <div id="canvas-container"></div>
+
+    <script>
+        // --- SYNTHESIZED SOUND EFFECTS ENGINE ---
+        let audioCtx = null;
+
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+        }
+
+        function playThrowSound() {
+            initAudio(); if (!audioCtx) return;
+            let osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(600, audioCtx.currentTime + 0.15);
+            gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+            gain.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.15);
+        }
+
+        function playSpitSound() {
+            initAudio(); if (!audioCtx) return;
+            let osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(300, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(80, audioCtx.currentTime + 0.1);
+            gain.gain.setValueAtTime(0.4, audioCtx.currentTime);
+            gain.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.1);
+        }
+
+        function playScreamSound(isKnockout) {
+            initAudio(); if (!audioCtx) return;
+            let osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            let basePitch = 180 + Math.random() * 120; 
+            osc.type = 'sawtooth';
+
+            if (isKnockout) {
+                osc.frequency.setValueAtTime(basePitch, audioCtx.currentTime);
+                osc.frequency.linearRampToValueAtTime(50, audioCtx.currentTime + 0.4);
+                gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                gain.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
+            } else {
+                osc.frequency.setValueAtTime(basePitch + 200, audioCtx.currentTime);
+                osc.frequency.linearRampToValueAtTime(basePitch + 350, audioCtx.currentTime + 0.2);
+                gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+                gain.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + 0.25);
+            }
+            osc.start(); osc.stop(audioCtx.currentTime + 0.4);
+        }
+
+        function playBossPunchSound() {
+            initAudio(); if (!audioCtx) return;
+            let osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(100, audioCtx.currentTime);
+            osc.frequency.linearRampToValueAtTime(40, audioCtx.currentTime + 0.15);
+            gain.gain.setValueAtTime(0.4, audioCtx.currentTime);
+            gain.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.15);
+        }
+
+        function playBossGrowl() {
+            initAudio(); if (!audioCtx) return;
+            let osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(90, audioCtx.currentTime);
+            osc.frequency.setValueAtTime(110, audioCtx.currentTime + 0.1);
+            gain.gain.setValueAtTime(0.4, audioCtx.currentTime);
+            gain.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.3);
+        }
+
+        // --- GAME SYSTEM VARIABLES ---
+        let scene, camera, renderer, player, leftArm, rightArm;
+        let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
+        let velocity = new THREE.Vector3(), direction = new THREE.Vector3();
+        let prevTime = performance.now();
+        
+        let cans = [];
+        let spitballs = [];
+        let npcs = [];
+        let papersOnWall = [];
+        let initialPaperPositions = [
+            {x: -19.4, y: 4, z: 0, rY: Math.PI/2},
+            {x: 19.4, y: 4, z: 4, rY: -Math.PI/2},
+            {x: -49.4, y: 6, z: -50, rY: Math.PI/2},
+            {x: 49.4, y: 6, z: -100, rY: -Math.PI/2}
+        ];
+        
+        let score = 0;
+        let paperInventory = 0;
+        
+        let playerHealth = 100;
+        let bossHealth = 100;
+        let tysonBoss = null;
+        let punchTimer = 0;
+        let alternatingPunch = false;
+
+        const mapWalls = [];
+
+        init();
+        animate();
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0a0a1a);
+            scene.fog = new THREE.FogExp2(0x0a0a1a, 0.015);
+
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            
+            player = new THREE.Group();
+            player.position.set(0, 2, 30); 
+            player.add(camera);
+            scene.add(player);
+
+            // Player Boxing Arms
+            const armMat = new THREE.MeshBasicMaterial({ color: 0x5c4033 }); 
+            const armGeo = new THREE.BoxGeometry(0.2, 0.2, 0.8);
+            leftArm = new THREE.Mesh(armGeo, armMat); leftArm.position.set(-0.4, -0.3, -0.6); camera.add(leftArm);
+            rightArm = new THREE.Mesh(armGeo, armMat); rightArm.position.set(0.4, -0.3, -0.6); camera.add(rightArm);
+
+            scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+            const storeLight = new THREE.PointLight(0xffaa66, 1.5, 30); storeLight.position.set(0, 8, 20); scene.add(storeLight);
+            const mallLight = new THREE.PointLight(0x66aaff, 1.2, 80); mallLight.position.set(0, 15, -20); scene.add(mallLight);
+
+            buildMap();
+            spawnNPCs(15);
+            spawnMikeTyson();
+
+            renderer = new THREE.WebGLRenderer({ antialias: false }); 
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio * 0.5); 
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+            window.addEventListener('resize', onWindowResize);
+            document.addEventListener('keydown', onKeyDown);
+            document.addEventListener('keyup', onKeyUp);
+            
+            document.body.addEventListener('click', () => {
+                document.body.requestPointerLock();
+                initAudio(); 
+            });
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mousedown', throwCan);
+        }
+
+        // --- MAP GENERATION ---
+        function buildMap() {
+            const asphaltMat = new THREE.MeshBasicMaterial({ color: 0x1a1a1c });
+            const storeFloorMat = new THREE.MeshBasicMaterial({ color: 0xdddddd });
+            const mallFloorMat = new THREE.MeshBasicMaterial({ color: 0x3d3545 });
+            const wallMat = new THREE.MeshBasicMaterial({ color: 0x2b2b30 });
+            const storeWallMat = new THREE.MeshBasicMaterial({ color: 0x737365 });
+            const shelfMat = new THREE.MeshBasicMaterial({ color: 0xa64b2e });
+
+            createFloor(80, 40, 0, 25, asphaltMat);
+            createFloor(40, 30, 0, -10, storeFloorMat);
+            createFloor(100, 100, 0, -75, mallFloorMat);
+
+            createWall(80, 15, 1, 0, 7.5, 45, wallMat);       
+            createWall(1, 15, 40, -40, 7.5, 25, wallMat);     
+            createWall(1, 15, 40, 40, 7.5, 25, wallMat);      
+            createWall(1, 12, 30, -20, 6, -10, storeWallMat);  
+            createWall(1, 12, 30, 20, 6, -10, storeWallMat);   
+            createWall(14, 12, 1, -13, 6, 5, storeWallMat);   
+            createWall(14, 12, 1, 13, 6, 5, storeWallMat);    
+            createWall(100, 30, 1, 0, 15, -125, wallMat);     
+            createWall(1, 30, 100, -50, 15, -75, wallMat);     
+            createWall(1, 30, 100, 50, 15, -75, wallMat);      
+            createWall(30, 30, 1, -35, 15, -25, wallMat); 
+            createWall(30, 30, 1, 35, 15, -25, wallMat);
+
+            for (let i = -12; i <= 12; i += 8) {
+                if (i !== 0) createWall(2, 4, 16, i, 2, -10, shelfMat);
+            }
+
+            // Boxing Ring
+            const ringX = 0, ringZ = -75;
+            const canvasMesh = new THREE.Mesh(new THREE.BoxGeometry(24, 1, 24), new THREE.MeshBasicMaterial({color: 0x1144aa}));
+            canvasMesh.position.set(ringX, 0.5, ringZ); scene.add(canvasMesh); mapWalls.push(canvasMesh);
+
+            const postGeo = new THREE.CylinderGeometry(0.3, 0.3, 5, 6);
+            const redPostMat = new THREE.MeshBasicMaterial({color: 0xcc0000}), bluePostMat = new THREE.MeshBasicMaterial({color: 0x0000cc});
+            const offsets = [[-12,-12], [12,-12], [12,12], [-12,12]];
+            offsets.forEach((o, idx) => {
+                let post = new THREE.Mesh(postGeo, idx % 2 === 0 ? redPostMat : bluePostMat);
+                post.position.set(ringX + o[0], 3, ringZ + o[1]); scene.add(post); mapWalls.push(post);
+            });
+
+            resetPaperPacks();
+        }
+
+        function createFloor(w, d, x, z, mat) {
+            const geo = new THREE.PlaneGeometry(w, d);
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.rotation.x = -Math.PI / 2; mesh.position.set(x, 0, z); scene.add(mesh);
+        }
+
+        function createWall(w, h, d, x, y, z, mat) {
+            const geo = new THREE.BoxGeometry(w, h, d);
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.position.set(x, y, z); scene.add(mesh); mapWalls.push(mesh);
+        }
+
+        function resetPaperPacks() {
+            papersOnWall.forEach(p => scene.remove(p));
+            papersOnWall = [];
+            initialPaperPositions.forEach(pos => {
+                const paperMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.8), new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide }));
+                paperMesh.position.set(pos.x, pos.y, pos.z); paperMesh.rotation.y = pos.rY; 
+                scene.add(paperMesh); papersOnWall.push(paperMesh);
+            });
+        }
+
+        // --- SPAWN MIKE TYSON ---
+        function spawnMikeTyson() {
+            if (tysonBoss) scene.remove(tysonBoss);
+
+            tysonBoss = new THREE.Group();
+            const body = new THREE.Mesh(new THREE.BoxGeometry(2.4, 4.0, 1.4), new THREE.MeshBasicMaterial({ color: 0x111111 }));
+            body.position.y = 2.0; tysonBoss.add(body);
+
+            const skinMat = new THREE.MeshBasicMaterial({ color: 0x4a2f13 });
+            const chest = new THREE.Mesh(new THREE.BoxGeometry(2.6, 2.0, 1.6), skinMat); chest.position.y = 3.0; tysonBoss.add(chest);
+            const head = new THREE.Mesh(new THREE.BoxGeometry(1.3, 1.3, 1.3), skinMat); head.position.y = 4.65; tysonBoss.add(head);
+
+            const faceGroup = new THREE.Group(); faceGroup.position.set(0, 4.65, -0.66);
+            const tat = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.5, 0.02), new THREE.MeshBasicMaterial({color: 0x111122})); tat.position.set(-0.25, 0.1, 0); faceGroup.add(tat);
+            const whiteMat = new THREE.MeshBasicMaterial({color: 0xffffff});
+            const leftEye = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.12, 0.02), whiteMat); leftEye.position.set(-0.25, 0.15, 0.01); faceGroup.add(leftEye);
+            const rightEye = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.12, 0.02), whiteMat); rightEye.position.set(0.25, 0.15, 0.01); faceGroup.add(rightEye);
+            const teethMouth = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.15, 0.02), whiteMat); teethMouth.position.set(0, -0.3, 0); faceGroup.add(teethMouth);
+            tysonBoss.add(faceGroup);
+
+            const gloveMat = new THREE.MeshBasicMaterial({color: 0xdd0000});
+            const leftGlove = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.6, 0.6), gloveMat); leftGlove.position.set(-1.6, 2.8, -0.8); tysonBoss.add(leftGlove);
+            const rightGlove = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.6, 0.6), gloveMat); rightGlove.position.set(1.6, 2.8, -0.8); tysonBoss.add(rightGlove);
+
+            tysonBoss.position.set(0, 1.0, -75);
+            tysonBoss.userData = { speed: 7.5, slowed: false, slowedTimer: 0, wiggleTime: 0, originalColors: [0x111111, 0x4a2f13] };
+            scene.add(tysonBoss);
+        }
+
+        // --- CIVILIANS ---
+        function spawnNPCs(count) {
+            npcs.forEach(n => scene.remove(n));
+            npcs = [];
+            const colors = [0xff4444, 0x44ff44, 0x4444ff, 0xffff44, 0xff44ff];
+            for (let i = 0; i < count; i++) {
+                const npcGroup = new THREE.Group();
+                const body = new THREE.Mesh(new THREE.BoxGeometry(1.2, 2.2, 0.6), new THREE.MeshBasicMaterial({ color: colors[Math.floor(Math.random() * colors.length)] }));
+                body.position.y = 1.1; npcGroup.add(body);
+
+                const head = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 0.7), new THREE.MeshBasicMaterial({ color: 0xffcc99 }));
+                head.position.y = 2.55; npcGroup.add(head);
+
+                const faceGroup = new THREE.Group(); faceGroup.position.set(0, 2.55, -0.36); 
+                const eye = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.02), new THREE.MeshBasicMaterial({ color: 0x0 }));
+                let e1 = eye.clone(); e1.position.set(-0.15, 0.1, 0); faceGroup.add(e1);
+                let e2 = eye.clone(); e2.position.set(0.15, 0.1, 0); faceGroup.add(e2);
+                let m = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.15, 0.02), new THREE.MeshBasicMaterial({ color: 0x440000 })); m.position.set(0, -0.15, 0); faceGroup.add(m);
+                npcGroup.add(faceGroup);
+
+                npcGroup.position.set((Math.random() - 0.5) * 26, 0, -10 + Math.random() * 35);
+                npcGroup.userData = { panicking: false, fallen: false, slowed: false, slowTimer: 0, target: new THREE.Vector3(), speed: 4 + Math.random() * 3, wiggleTime: Math.random() * 50, fallAngle: 0, fallProgress: 0, originalColor: body.material.color.getHex() };
+                scene.add(npcGroup); npcs.push(npcGroup);
+            }
+        }
+
+        // --- BOXING / PUNCHING MECHANIC ---
+        function performPlayerPunch() {
+            if (playerHealth <= 0) return;
+            
+            playBossPunchSound(); // Quick hitting swipe sound
+            
+            // Alternating arm extensions forward
+            alternatingPunch = !alternatingPunch;
+            if (alternatingPunch) {
+                leftArm.position.z = -1.5; setTimeout(() => leftArm.position.z = -0.6, 120);
+            } else {
+                rightArm.position.z = -1.5; setTimeout(() => rightArm.position.z = -0.6, 120);
+            }
+
+            // Check Boss Hit range (Closer than throwing cans)
+            if (bossHealth > 0 && tysonBoss) {
+                let distanceToBoss = player.position.distanceTo(tysonBoss.position);
+                if (distanceToBoss < 6.5) {
+                    bossHealth = Math.max(0, bossHealth - 8); // Heavy boxing damage
+                    document.getElementById('boss-health-bar').style.width = bossHealth + '%';
+                    playScreamSound(false);
+                    
+                    if (bossHealth <= 0) {
+                        playScreamSound(true);
+                        tysonBoss.rotation.z = Math.PI / 2;
+                        tysonBoss.position.y = 0.5;
+                    }
+                    return; 
+                }
+            }
+
+            // Check Civilian boxing range knockouts
+            for (let npc of npcs) {
+                if (!npc.userData.fallen && player.position.distanceTo(npc.position) < 4.5) {
+                    npc.userData.fallen = true;
+                    npc.userData.panicking = false;
+                    npc.userData.fallAngle = player.rotation.y;
+                    playScreamSound(true);
+                    npc.children[0].material.color.setHex(0x555555);
+                    break;
+                }
+            }
+        }
+
+        // --- SYSTEM RESET FUNCTION ---
+        function resetGame() {
+            // Restore Health & HUD Parameters
+            playerHealth = 100;
+            bossHealth = 100;
+            score = 0;
+            paperInventory = 0;
+            document.getElementById('player-health-bar').style.width = '100%';
+            document.getElementById('boss-health-bar').style.width = '100%';
+            document.getElementById('score').innerText = '0';
+            document.getElementById('paper-count').innerText = '0';
+
+            // Clear projectiles
+            cans.forEach(c => scene.remove(c));
+            spitballs.forEach(s => scene.remove(s));
+            cans = [];
+            spitballs = [];
+
+            // Re-setup layout positions
+            player.position.set(0, 2, 30);
+            camera.position.set(0,0,0);
+            camera.rotation.set(0,0,0);
+            player.rotation.set(0,0,0);
+
+            spawnMikeTyson();
+            spawnNPCs(15);
+            resetPaperPacks();
+        }
+
+        // --- ACTIONS ---
+        function throwCan() {
+            if (document.pointerLockElement !== document.body || playerHealth <= 0) return;
+            score++; document.getElementById('score').innerText = score;
+            playThrowSound(); joltArms();
+
+            const can = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.45, 6), new THREE.MeshBasicMaterial({ color: 0xff1111 }));
+            can.position.copy(player.position); can.position.y += 1.4;
+            const dir = new THREE.Vector3(); camera.getWorldDirection(dir);
+            can.userData = { velocity: dir.multiplyScalar(42), gravity: -12.0, active: true, rotationSpeed: new THREE.Vector3(Math.random()*12, Math.random()*12, Math.random()*12) };
+            scene.add(can); cans.push(can);
+            alertNearbyNPCs();
+        }
+
+        function handlePaperAction() {
+            if (playerHealth <= 0) return;
+            let nearPaper = false;
+            for (let i = papersOnWall.length - 1; i >= 0; i--) {
+                let paper = papersOnWall[i];
+                if (player.position.distanceTo(paper.position) < 4.5) {
+                    scene.remove(paper); papersOnWall.splice(i, 1);
+                    paperInventory++; document.getElementById('paper-count').innerText = paperInventory;
+                    nearPaper = true; joltArms(); break;
+                }
+            }
+
+            if (!nearPaper && paperInventory > 0) {
+                paperInventory--; document.getElementById('paper-count').innerText = paperInventory;
+                playSpitSound(); joltArms();
+
+                const spitMesh = new THREE.Mesh(new THREE.SphereGeometry(0.2, 4, 4), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+                spitMesh.position.copy(player.position); spitMesh.position.y += 1.6; 
+                const dir = new THREE.Vector3(); camera.getWorldDirection(dir);
+                spitMesh.userData = { velocity: dir.multiplyScalar(45), gravity: -7.0, active: true };
+                scene.add(spitMesh); spitballs.push(spitMesh);
+                alertNearbyNPCs();
+            }
+        }
+
+        function alertNearbyNPCs() {
+            npcs.forEach(npc => {
+                if (!npc.userData.fallen && npc.position.distanceTo(player.position) < 22) {
+                    if (!npc.userData.panicking) playScreamSound(false);
+                    npc.userData.panicking = true;
+                    npc.userData.target.set((Math.random() - 0.5) * 80, 0, -40 - Math.random() * 45);
+                }
+            });
+        }
+
+        function joltArms() {
+            leftArm.position.z = -1.1; rightArm.position.z = -1.1;
+            setTimeout(() => { leftArm.position.z = -0.6; rightArm.position.z = -0.6; }, 100);
+        }
+
+        // --- CONTROLS ---
+        function onMouseMove(event) {
+            if (document.pointerLockElement !== document.body || playerHealth <= 0) return;
+            player.rotation.y -= event.movementX * 0.0025;
+            camera.rotation.x -= event.movementY * 0.0025;
+            camera.rotation.x = Math.max(-Math.PI / 2.3, Math.min(Math.PI / 2.3, camera.rotation.x));
+        }
+
+        function onKeyDown(event) {
+            switch (event.code) {
+                case 'KeyW': moveForward = true; break;
+                case 'KeyS': moveBackward = true; break;
+                case 'KeyA': moveLeft = true; break;
+                case 'KeyD': moveRight = true; break;
+                case 'KeyF': handlePaperAction(); break;
+                case 'KeyB': performPlayerPunch(); break;
+                case 'KeyR': resetGame(); break;
+            }
+        }
+
+        function onKeyUp(event) {
+            switch (event.code) {
+                case 'KeyW': moveForward = false; break;
+                case 'KeyS': moveBackward = false; break;
+                case 'KeyA': moveLeft = false; break;
+                case 'KeyD': moveRight = false; break;
+            }
+        }
+
+        function checkWallCollisions(position, radius) {
+            for (let wall of mapWalls) {
+                let box = new THREE.Box3().setFromObject(wall);
+                box.min.x -= radius; box.max.x += radius; box.min.z -= radius; box.max.z += radius;
+                if (box.containsPoint(position)) {
+                    let distX1 = Math.abs(position.x - box.min.x), distX2 = Math.abs(position.x - box.max.x);
+                    let distZ1 = Math.abs(position.z - box.min.z), distZ2 = Math.abs(position.z - box.max.z);
+                    let minDist = Math.min(distX1, distX2, distZ1, distZ2);
+                    if (minDist === distX1) position.x = box.min.x;
+                    else if (minDist === distX2) position.x = box.max.x;
+                    else if (minDist === distZ1) position.z = box.min.z;
+                    else if (minDist === distZ2) position.z = box.max.z;
+                }
+            }
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // --- MAIN RETRO ENGINE LOOP ---
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const time = performance.now();
+            const delta = (time - prevTime) / 1000;
+            prevTime = time;
+
+            if (playerHealth > 0) {
+                velocity.x -= velocity.x * 10.0 * delta; velocity.z -= velocity.z * 10.0 * delta;
+                direction.z = Number(moveForward) - Number(moveBackward); direction.x = Number(moveRight) - Number(moveLeft);
+                direction.normalize();
+
+                if (moveForward || moveBackward) velocity.z -= direction.z * 140.0 * delta;
+                if (moveLeft || moveRight) velocity.x -= direction.x * 140.0 * delta;
+
+                player.translateX(-velocity.x * delta); player.translateZ(-velocity.z * delta);
+                checkWallCollisions(player.position, 1.2);
+                player.position.y = 2; 
+
+                if (moveForward || moveBackward || moveLeft || moveRight) {
+                    let bob = Math.sin(time * 0.01) * 0.03;
+                    leftArm.position.y = -0.3 + bob; rightArm.position.y = -0.3 - bob;
+                }
+            } else {
+                if(camera.position.y > -0.8) {
+                    camera.position.y -= delta * 4;
+                    camera.rotation.z += delta * 2;
+                }
+            }
+
+            // Tyson Boss Tracking
+            if (tysonBoss && bossHealth > 0) {
+                tysonBoss.userData.wiggleTime += delta * 15;
+                let distToPlayer = tysonBoss.position.distanceTo(player.position);
+
+                if (distToPlayer < 45 && playerHealth > 0) {
+                    tysonBoss.lookAt(player.position.x, tysonBoss.position.y, player.position.z);
+                    
+                    let currentBossSpeed = tysonBoss.userData.speed;
+                    if(tysonBoss.userData.slowed) {
+                        currentBossSpeed *= 0.4;
+                        tysonBoss.userData.slowTimer -= delta;
+                        if(tysonBoss.userData.slowTimer <= 0) tysonBoss.userData.slowed = false;
+                    }
+
+                    if (distToPlayer > 4.5) {
+                        tysonBoss.translateZ(currentBossSpeed * delta);
+                    } else {
+                        punchTimer += delta;
+                        if(punchTimer >= 0.5) { 
+                            punchTimer = 0;
+                            playBossPunchSound();
+                            if(Math.random() < 0.2) playBossGrowl();
+                            
+                            tysonBoss.children[4].position.z = -1.8;
+                            setTimeout(()=> { if(tysonBoss && bossHealth > 0) tysonBoss.children[4].position.z = -0.8; }, 100);
+
+                            playerHealth = Math.max(0, playerHealth - 12);
+                            document.getElementById('player-health-bar').style.width = playerHealth + '%';
+                            if(playerHealth <= 0) playScreamSound(true);
+                        }
+                    }
+
+                    tysonBoss.rotation.y += Math.sin(tysonBoss.userData.wiggleTime) * 0.02;
+                    tysonBoss.position.y = 1.0 + Math.abs(Math.sin(tysonBoss.userData.wiggleTime)) * 0.2;
+                } else {
+                    tysonBoss.position.y = 1.0;
+                }
+            }
+
+            // Flying Cans Logic
+            for (let i = cans.length - 1; i >= 0; i--) {
+                let can = cans[i]; if (!can.userData.active) continue;
+                can.userData.velocity.y += can.userData.gravity * delta * 3;
+                can.position.addScaledVector(can.userData.velocity, delta);
+
+                if (bossHealth > 0 && tysonBoss) {
+                    let bossCenter = tysonBoss.position.clone().add(new THREE.Vector3(0, 2.5, 0));
+                    if (can.position.distanceTo(bossCenter) < 3.0) {
+                        bossHealth = Math.max(0, bossHealth - 5); 
+                        document.getElementById('boss-health-bar').style.width = bossHealth + '%';
+                        can.userData.active = false; scene.remove(can);
+                        playScreamSound(false);
+
+                        if(bossHealth <= 0) {
+                            playScreamSound(true);
+                            tysonBoss.rotation.z = Math.PI / 2; tysonBoss.position.y = 0.5;
+                        }
+                        continue;
+                    }
+                }
+
+                npcs.forEach(npc => {
+                    if (!npc.userData.fallen && can.position.distanceTo(npc.position.clone().add(new THREE.Vector3(0, 1.1, 0))) < 1.6) {
+                        npc.userData.fallen = true; npc.userData.panicking = false;
+                        npc.userData.fallAngle = Math.atan2(can.userData.velocity.x, can.userData.velocity.z);
+                        playScreamSound(true);
+                        npc.children[0].material.color.setHex(0x555555);
+                        can.userData.velocity.set(0, -2, 0);
+                    }
+                });
+
+                if (can.position.y <= 0.2) { can.position.y = 0.2; can.userData.active = false; }
+            }
+
+            // Spitball Collision Hits
+            for (let i = spitballs.length - 1; i >= 0; i--) {
+                let ball = spitballs[i]; if (!ball.userData.active) continue;
+                ball.userData.velocity.y += ball.userData.gravity * delta * 2;
+                ball.position.addScaledVector(ball.userData.velocity, delta);
+
+                if(bossHealth > 0 && tysonBoss) {
+                    let bossCenter = tysonBoss.position.clone().add(new THREE.Vector3(0, 2.5, 0));
+                    if(ball.position.distanceTo(bossCenter) < 3.0) {
+                        tysonBoss.userData.slowed = true; tysonBoss.userData.slowTimer = 4.0; 
+                        playBossGrowl();
+                        scene.remove(ball); spitballs.splice(i,1); ball.userData.active = false;
+                        continue;
+                    }
+                }
+
+                npcs.forEach(npc => {
+                    if (!npc.userData.fallen && ball.position.distanceTo(npc.position.clone().add(new THREE.Vector3(0, 1.1, 0))) < 1.6) {
+                        npc.userData.slowed = true; npc.userData.slowTimer = 5.0;
+                        playScreamSound(false); npc.children[0].material.color.setHex(0xaaddff);
+                        scene.remove(ball); spitballs.splice(i, 1); ball.userData.active = false;
+                    }
+                });
+
+                if (ball.userData.active && ball.position.y <= 0.1) { scene.remove(ball); spitballs.splice(i, 1); }
+            }
+
+            // Normal Civilians Loop
+            npcs.forEach(npc => {
+                if (npc.userData.fallen) {
+                    if (npc.userData.fallProgress < Math.PI / 2) {
+                        npc.userData.fallProgress += delta * 7;
+                        if(npc.userData.fallProgress > Math.PI / 2) npc.userData.fallProgress = Math.PI / 2;
+                        npc.rotation.z = Math.sin(npc.userData.fallAngle) * npc.userData.fallProgress;
+                        npc.rotation.x = Math.cos(npc.userData.fallAngle) * npc.userData.fallProgress;
+                        npc.position.y = Math.max(0, 0.2 * (1 - npc.userData.fallProgress));
+                    }
+                    return;
+                }
+
+                let currentSpeed = npc.userData.speed;
+                if (npc.userData.slowed) {
+                    currentSpeed *= 0.35; npc.userData.slowTimer -= delta;
+                    if (npc.userData.slowTimer <= 0) { npc.userData.slowed = false; npc.children[0].material.color.setHex(npc.userData.originalColor); }
+                }
+
+                npc.userData.wiggleTime += delta * 18;
+                if (npc.userData.panicking) {
+                    npc.lookAt(npc.userData.target.x, npc.position.y, npc.userData.target.z);
+                    npc.translateZ(currentSpeed * 2.2 * delta);
+                    npc.children[0].rotation.z = Math.sin(npc.userData.wiggleTime) * 0.4;
+                    npc.children[0].position.y = 1.1 + Math.abs(Math.sin(npc.userData.wiggleTime)) * 0.4;
+                    if (npc.position.distanceTo(npc.userData.target) < 4) npc.userData.panicking = false;
+                } else {
+                    if (Math.random() < 0.008) npc.rotation.y += (Math.random() - 0.5) * 2.5;
+                    npc.translateZ(currentSpeed * 0.25 * delta);
+                    npc.children[0].rotation.z = Math.sin(npc.userData.wiggleTime * 0.2) * 0.04;
+                    npc.children[0].position.y = 1.1;
+                }
+                checkWallCollisions(npc.position, 0.8);
+            });
+
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>
+
